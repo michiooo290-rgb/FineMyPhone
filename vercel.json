@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "*.html", "use": "@vercel/static" },
+    { "src": "api/*.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/share/(.*)", "dest": "/share.html" },
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/(.*\\.html)", "dest": "/$1" },
+    { "src": "/js/(.*)", "dest": "/js/$1" }
+  ],
+  "crons": [
+    {
+      "path": "/api/check-offline",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/check-battery",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
