@@ -16,7 +16,7 @@
   "crons": [
     {
       "path": "/api/check-offline",
-      "schedule": "0 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/check-battery",
