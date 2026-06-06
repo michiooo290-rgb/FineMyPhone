@@ -277,6 +277,40 @@
       50% { opacity: 0.5; }
     }
     .tracking-pulse { animation: trackPulse 2s infinite; }
+
+    /* WARNING BANNER jangan tutup */
+    .warn-banner {
+      background: rgba(59,130,246,0.1);
+      border: 1px solid rgba(59,130,246,0.25);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--accent);
+      width: 100%;
+      max-width: 360px;
+      margin-bottom: 12px;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.5;
+    }
+    .warn-banner.show { display: flex; }
+
+    /* Wake Lock status */
+    .wakelock-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      width: fit-content;
+      margin: 0 auto 12px;
+    }
+    .wakelock-badge.show { display: inline-flex; }
+    .wakelock-badge.active { background: rgba(34,197,94,0.12); color: #4ade80; }
+    .wakelock-badge.inactive { background: rgba(245,158,11,0.12); color: var(--warning); }
   </style>
 </head>
 <body>
@@ -305,6 +339,14 @@
   <div class="battery-warn" id="battery-warn">
     🪫 Baterai kritis! Lokasi terakhir sudah dikirim.
   </div>
+
+  <!-- Warning jangan tutup browser -->
+  <div class="warn-banner" id="warn-banner">
+    ⚠️ Jangan tutup browser ini! Tracking akan berhenti jika browser ditutup atau tab ini ditutup. Biarkan halaman ini terbuka.
+  </div>
+
+  <!-- Wake Lock status -->
+  <div class="wakelock-badge" id="wakelock-badge"></div>
 
   <!-- Status card -->
   <div class="status-card" id="status-card" style="display:none">
@@ -349,7 +391,7 @@
   const { createClient } = supabase;
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  const INTERVAL_DETIK = 5; // kirim lokasi tiap 5 detik
+  const INTERVAL_DETIK = 5;
   const OFFLINE_KEY = 'fmp_offline_queue';
 
   let deviceId = null;
@@ -361,6 +403,8 @@
   let sentCount = 0;
   let offlineQueue = [];
   let batteryAlertSent = false;
+  let wakeLock = null;
+  let keepAliveInterval = null;
 
   // =====================
   // INIT
@@ -408,12 +452,122 @@
     window.addEventListener('offline', onOffline);
     if (!navigator.onLine) onOffline();
 
-    // Page visibility (tetap jalan saat layar mati)
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && isTracking) addLog('👁️ Halaman aktif kembali');
+    // Page visibility — re-acquire wake lock saat kembali aktif
+    document.addEventListener('visibilitychange', async () => {
+      if (!document.hidden && isTracking) {
+        addLog('👁️ Halaman aktif kembali');
+        await acquireWakeLock();
+      }
     });
 
+    // Register Service Worker
+    registerServiceWorker();
+
     addLog('✅ Tracker siap — token valid');
+
+    // AUTO-START: langsung mulai tracking
+    startTracking();
+  }
+
+  // =====================
+  // SERVICE WORKER
+  // =====================
+  async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) {
+      addLog('⚠️ Service Worker tidak didukung');
+      return;
+    }
+    try {
+      const reg = await navigator.serviceWorker.register('/sw-tracker.js');
+      addLog('✅ Service Worker terdaftar');
+
+      // Kirim config ke SW
+      if (reg.active) {
+        reg.active.postMessage({
+          type: 'INIT_TRACKER',
+          config: {
+            supabaseUrl: SUPABASE_URL,
+            supabaseKey: SUPABASE_ANON_KEY,
+            deviceId: deviceId,
+            intervalDetik: INTERVAL_DETIK
+          }
+        });
+      }
+
+      // Tunggu SW aktif lalu kirim config
+      navigator.serviceWorker.ready.then(registration => {
+        registration.active.postMessage({
+          type: 'INIT_TRACKER',
+          config: {
+            supabaseUrl: SUPABASE_URL,
+            supabaseKey: SUPABASE_ANON_KEY,
+            deviceId: deviceId,
+            intervalDetik: INTERVAL_DETIK
+          }
+        });
+      });
+    } catch (e) {
+      addLog('⚠️ Gagal register Service Worker: ' + e.message);
+    }
+  }
+
+  // =====================
+  // WAKE LOCK API
+  // =====================
+  async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) {
+      updateWakeLockBadge(false, 'Tidak didukung');
+      return;
+    }
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      updateWakeLockBadge(true, 'Layar tetap menyala');
+      addLog('🔒 Wake Lock aktif — layar tidak akan mati');
+
+      wakeLock.addEventListener('release', () => {
+        updateWakeLockBadge(false, 'Wake Lock lepas');
+        addLog('🔓 Wake Lock terlepas');
+        // Coba acquire lagi jika masih tracking
+        if (isTracking && !document.hidden) {
+          setTimeout(() => acquireWakeLock(), 1000);
+        }
+      });
+    } catch (e) {
+      updateWakeLockBadge(false, 'Gagal aktifkan');
+      addLog('⚠️ Wake Lock gagal: ' + e.message);
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release();
+      wakeLock = null;
+      updateWakeLockBadge(false, 'Nonaktif');
+    }
+  }
+
+  function updateWakeLockBadge(active, text) {
+    const badge = document.getElementById('wakelock-badge');
+    badge.className = `wakelock-badge show ${active ? 'active' : 'inactive'}`;
+    badge.textContent = `🔒 ${text}`;
+  }
+
+  // =====================
+  // KEEP-ALIVE (anti throttle)
+  // =====================
+  function startKeepAlive() {
+    // Ping tiap 20 detik untuk mencegah browser throttle tab background
+    keepAliveInterval = setInterval(() => {
+      // Silent fetch sebagai keep-alive
+      fetch('/api/check-offline', { method: 'HEAD' }).catch(() => {});
+    }, 20000);
+  }
+
+  function stopKeepAlive() {
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
   }
 
   // =====================
@@ -445,10 +599,8 @@
       document.getElementById('battery-warn').classList.add('show');
       addLog('🪫 Baterai kritis! Kirim last breath alert...');
 
-      // Kirim lokasi terakhir
       await kirimLokasi(currentPos);
 
-      // Kirim notif Discord via API
       fetch('/api/check-battery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -479,6 +631,15 @@
     updateUI('tracking');
     addLog('🚀 Mulai tracking...');
 
+    // Tampilkan peringatan jangan tutup browser
+    document.getElementById('warn-banner').classList.add('show');
+
+    // Acquire Wake Lock
+    acquireWakeLock();
+
+    // Start keep-alive
+    startKeepAlive();
+
     // Watch position
     watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -496,13 +657,18 @@
       if (!currentPos) { addLog('⏳ Menunggu sinyal GPS...'); return; }
 
       if (navigator.onLine) {
-        // Kirim pending offline dulu
         await syncOfflineQueue();
         await kirimLokasi(currentPos);
       } else {
         simpanOffline(currentPos);
       }
     }, INTERVAL_DETIK * 1000);
+
+    // Prevent accidental close
+    window.onbeforeunload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
   }
 
   function stopTracking() {
@@ -511,6 +677,13 @@
     if (intervalId) clearInterval(intervalId);
     watchId = null;
     intervalId = null;
+
+    releaseWakeLock();
+    stopKeepAlive();
+
+    document.getElementById('warn-banner').classList.remove('show');
+    window.onbeforeunload = null;
+
     updateUI('stopped');
     addLog('⏹️ Tracking dihentikan');
   }
@@ -657,7 +830,6 @@
     item.className = 'log-item';
     item.innerHTML = `<span class="log-time">${time}</span><span>${msg}</span>`;
     list.prepend(item);
-    // Max 20 log
     while (list.children.length > 20) list.removeChild(list.lastChild);
   }
 
