@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>FindMyPhone — Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #13161d;
+      --surface2: #1a1e28;
+      --border: #1e2330;
+      --accent: #3b82f6;
+      --text: #e8eaf0;
+      --muted: #6b7280;
+      --online: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+
+    /* LOGO */
+    .logo {
+      font-family: 'Space Mono', monospace;
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      text-align: center;
+    }
+    .logo span { color: var(--accent); }
+
+    .logo-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 28px;
+      text-align: center;
+    }
+
+    /* DEVICE INFO */
+    .device-badge {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 20px;
+      margin-bottom: 24px;
+      text-align: center;
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .device-badge-name {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .device-badge-model {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* STATUS CARD */
+    .status-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .status-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .status-text {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .status-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    /* BIG BUTTON */
+    .btn-track {
+      width: 100%;
+      padding: 16px;
+      border-radius: 12px;
+      border: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-start {
+      background: var(--online);
+      color: white;
+    }
+    .btn-start:hover { background: #16a34a; transform: translateY(-1px); }
+    .btn-start:active { transform: translateY(0); }
+
+    .btn-stop {
+      background: rgba(239,68,68,0.15);
+      color: var(--danger);
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .btn-stop:hover { background: rgba(239,68,68,0.25); }
+
+    .btn-track:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* STATS GRID */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      width: 100%;
+      max-width: 360px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 600;
+      font-family: 'Space Mono', monospace;
+    }
+
+    .stat-unit {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 400;
+    }
+
+    /* LOG */
+    .log-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      width: 100%;
+      max-width: 360px;
+      margin-bottom: 16px;
+    }
+
+    .log-title {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+    }
+
+    .log-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+
+    .log-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .log-time {
+      color: var(--accent);
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    /* OFFLINE BADGE */
+    .offline-badge {
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--warning);
+      width: 100%;
+      max-width: 360px;
+      margin-bottom: 12px;
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+    .offline-badge.show { display: flex; }
+
+    /* BATTERY WARNING */
+    .battery-warn {
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--danger);
+      width: 100%;
+      max-width: 360px;
+      margin-bottom: 12px;
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+    .battery-warn.show { display: flex; }
+
+    /* ERROR */
+    .error-card {
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 12px;
+      padding: 20px;
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+      display: none;
+    }
+    .error-card.show { display: block; }
+    .error-card h3 { font-size: 16px; color: var(--danger); margin-bottom: 8px; }
+    .error-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+    /* Pulse animation saat tracking */
+    @keyframes trackPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .tracking-pulse { animation: trackPulse 2s infinite; }
+  </style>
+</head>
+<body>
+
+  <div class="logo">Find<span>My</span>Phone</div>
+  <div class="logo-sub">Mode Tracker — HP ini sedang dipantau</div>
+
+  <!-- Error: token tidak valid -->
+  <div class="error-card" id="error-card">
+    <h3>⚠️ Link Tidak Valid</h3>
+    <p>Token tracker ini tidak ditemukan atau sudah tidak aktif.<br><br>Minta link baru dari pemilik dashboard.</p>
+  </div>
+
+  <!-- Info device -->
+  <div class="device-badge" id="device-badge" style="display:none">
+    <div class="device-badge-name" id="device-name">—</div>
+    <div class="device-badge-model" id="device-model">—</div>
+  </div>
+
+  <!-- Warning offline -->
+  <div class="offline-badge" id="offline-badge">
+    📡 Tidak ada internet — lokasi disimpan lokal (<span id="pending-count">0</span> pending)
+  </div>
+
+  <!-- Warning baterai -->
+  <div class="battery-warn" id="battery-warn">
+    🪫 Baterai kritis! Lokasi terakhir sudah dikirim.
+  </div>
+
+  <!-- Status card -->
+  <div class="status-card" id="status-card" style="display:none">
+    <span class="status-icon" id="status-icon">📍</span>
+    <div class="status-text" id="status-text">Siap mulai</div>
+    <div class="status-sub" id="status-sub">Klik tombol di bawah untuk mulai tracking</div>
+
+    <button class="btn-track btn-start" id="btn-main" onclick="toggleTracking()">
+      📡 Mulai Tracking
+    </button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" id="stats-grid" style="display:none">
+    <div class="stat-card">
+      <div class="stat-label">Baterai</div>
+      <div class="stat-value" id="stat-battery">—<span class="stat-unit">%</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Akurasi GPS</div>
+      <div class="stat-value" id="stat-accuracy">—<span class="stat-unit">m</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Terkirim</div>
+      <div class="stat-value" id="stat-sent">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Update terakhir</div>
+      <div class="stat-value" style="font-size:13px" id="stat-time">—</div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log-card" id="log-card" style="display:none">
+    <div class="log-title">📋 Log Aktivitas</div>
+    <div class="log-list" id="log-list"></div>
+  </div>
+
+<script>
+  const SUPABASE_URL = 'GANTI_DENGAN_SUPABASE_URL_KAMU';
+  const SUPABASE_ANON_KEY = 'GANTI_DENGAN_SUPABASE_ANON_KEY_KAMU';
+  const { createClient } = supabase;
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const INTERVAL_DETIK = 5; // kirim lokasi tiap 5 detik
+  const OFFLINE_KEY = 'fmp_offline_queue';
+
+  let deviceId = null;
+  let watchId = null;
+  let intervalId = null;
+  let isTracking = false;
+  let currentPos = null;
+  let currentBattery = null;
+  let sentCount = 0;
+  let offlineQueue = [];
+  let batteryAlertSent = false;
+
+  // =====================
+  // INIT
+  // =====================
+  async function init() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    if (!token) {
+      showError();
+      return;
+    }
+
+    // Validasi token
+    const { data: device, error } = await db
+      .from('devices')
+      .select('id, nama, model, aktif')
+      .eq('token_unik', token)
+      .single();
+
+    if (error || !device || !device.aktif) {
+      showError();
+      return;
+    }
+
+    deviceId = device.id;
+
+    // Tampilkan info device
+    document.getElementById('device-name').textContent = device.nama;
+    document.getElementById('device-model').textContent = device.model || 'HP Tracker';
+    document.getElementById('device-badge').style.display = 'block';
+    document.getElementById('status-card').style.display = 'block';
+    document.getElementById('stats-grid').style.display = 'grid';
+    document.getElementById('log-card').style.display = 'block';
+
+    // Load offline queue dari localStorage
+    offlineQueue = JSON.parse(localStorage.getItem(OFFLINE_KEY) || '[]');
+    updateOfflineBadge();
+
+    // Init battery API
+    initBattery();
+
+    // Cek koneksi
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    if (!navigator.onLine) onOffline();
+
+    // Page visibility (tetap jalan saat layar mati)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && isTracking) addLog('👁️ Halaman aktif kembali');
+    });
+
+    addLog('✅ Tracker siap — token valid');
+  }
+
+  // =====================
+  // BATTERY API
+  // =====================
+  async function initBattery() {
+    if (!('getBattery' in navigator)) return;
+    try {
+      const battery = await navigator.getBattery();
+      currentBattery = Math.round(battery.level * 100);
+      updateBatteryUI();
+
+      battery.addEventListener('levelchange', () => {
+        currentBattery = Math.round(battery.level * 100);
+        updateBatteryUI();
+        checkBatteryCritical();
+      });
+    } catch (e) {}
+  }
+
+  function updateBatteryUI() {
+    document.getElementById('stat-battery').innerHTML =
+      `${currentBattery ?? '—'}<span class="stat-unit">%</span>`;
+  }
+
+  async function checkBatteryCritical() {
+    if (currentBattery !== null && currentBattery <= 10 && !batteryAlertSent && currentPos) {
+      batteryAlertSent = true;
+      document.getElementById('battery-warn').classList.add('show');
+      addLog('🪫 Baterai kritis! Kirim last breath alert...');
+
+      // Kirim lokasi terakhir
+      await kirimLokasi(currentPos);
+
+      // Kirim notif Discord via API
+      fetch('/api/check-battery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: deviceId,
+          battery: currentBattery,
+          lat: currentPos.coords.latitude,
+          lng: currentPos.coords.longitude
+        })
+      }).catch(() => {});
+    }
+  }
+
+  // =====================
+  // TOGGLE TRACKING
+  // =====================
+  function toggleTracking() {
+    isTracking ? stopTracking() : startTracking();
+  }
+
+  function startTracking() {
+    if (!navigator.geolocation) {
+      addLog('❌ GPS tidak didukung browser ini');
+      return;
+    }
+
+    isTracking = true;
+    updateUI('tracking');
+    addLog('🚀 Mulai tracking...');
+
+    // Watch position
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        currentPos = pos;
+        const acc = Math.round(pos.coords.accuracy);
+        document.getElementById('stat-accuracy').innerHTML =
+          `${acc}<span class="stat-unit">m</span>`;
+      },
+      (err) => addLog(`⚠️ GPS error: ${err.message}`),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    // Kirim tiap INTERVAL_DETIK
+    intervalId = setInterval(async () => {
+      if (!currentPos) { addLog('⏳ Menunggu sinyal GPS...'); return; }
+
+      if (navigator.onLine) {
+        // Kirim pending offline dulu
+        await syncOfflineQueue();
+        await kirimLokasi(currentPos);
+      } else {
+        simpanOffline(currentPos);
+      }
+    }, INTERVAL_DETIK * 1000);
+  }
+
+  function stopTracking() {
+    isTracking = false;
+    if (watchId) navigator.geolocation.clearWatch(watchId);
+    if (intervalId) clearInterval(intervalId);
+    watchId = null;
+    intervalId = null;
+    updateUI('stopped');
+    addLog('⏹️ Tracking dihentikan');
+  }
+
+  // =====================
+  // KIRIM LOKASI
+  // =====================
+  async function kirimLokasi(pos) {
+    try {
+      const { error } = await db.from('locations').insert({
+        device_id: deviceId,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        speed: pos.coords.speed,
+        battery: currentBattery,
+        timestamp: new Date().toISOString()
+      });
+
+      if (error) throw error;
+
+      sentCount++;
+      document.getElementById('stat-sent').textContent = sentCount;
+      document.getElementById('stat-time').textContent =
+        new Date().toLocaleTimeString('id-ID');
+
+      addLog(`📍 Terkirim — ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+
+      // Cek geofence
+      fetch('/api/geofence-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: deviceId,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        })
+      }).catch(() => {});
+
+    } catch (err) {
+      addLog(`❌ Gagal kirim: ${err.message}`);
+      simpanOffline(pos);
+    }
+  }
+
+  // =====================
+  // OFFLINE QUEUE
+  // =====================
+  function simpanOffline(pos) {
+    offlineQueue.push({
+      device_id: deviceId,
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+      speed: pos.coords.speed,
+      battery: currentBattery,
+      timestamp: new Date().toISOString()
+    });
+    localStorage.setItem(OFFLINE_KEY, JSON.stringify(offlineQueue));
+    updateOfflineBadge();
+    addLog(`💾 Disimpan offline (${offlineQueue.length} pending)`);
+  }
+
+  async function syncOfflineQueue() {
+    if (!offlineQueue.length) return;
+    addLog(`🔄 Sync ${offlineQueue.length} data offline...`);
+
+    const toSync = [...offlineQueue];
+    offlineQueue = [];
+    localStorage.setItem(OFFLINE_KEY, '[]');
+    updateOfflineBadge();
+
+    for (const loc of toSync) {
+      try {
+        await db.from('locations').insert(loc);
+      } catch (e) {
+        offlineQueue.push(loc);
+      }
+    }
+
+    if (offlineQueue.length) {
+      localStorage.setItem(OFFLINE_KEY, JSON.stringify(offlineQueue));
+      updateOfflineBadge();
+    } else {
+      addLog('✅ Semua data offline berhasil disync');
+    }
+  }
+
+  function updateOfflineBadge() {
+    const badge = document.getElementById('offline-badge');
+    const count = document.getElementById('pending-count');
+    count.textContent = offlineQueue.length;
+    if (offlineQueue.length > 0 && !navigator.onLine) {
+      badge.classList.add('show');
+    } else if (offlineQueue.length === 0) {
+      badge.classList.remove('show');
+    }
+  }
+
+  // =====================
+  // ONLINE / OFFLINE
+  // =====================
+  function onOnline() {
+    addLog('🌐 Internet tersambung kembali');
+    document.getElementById('offline-badge').classList.remove('show');
+    if (isTracking && offlineQueue.length) syncOfflineQueue();
+  }
+
+  function onOffline() {
+    addLog('📴 Internet terputus — mode offline aktif');
+    if (offlineQueue.length > 0) document.getElementById('offline-badge').classList.add('show');
+  }
+
+  // =====================
+  // UI HELPERS
+  // =====================
+  function updateUI(state) {
+    const icon = document.getElementById('status-icon');
+    const text = document.getElementById('status-text');
+    const sub = document.getElementById('status-sub');
+    const btn = document.getElementById('btn-main');
+
+    if (state === 'tracking') {
+      icon.textContent = '📡';
+      icon.classList.add('tracking-pulse');
+      text.textContent = 'Sedang Tracking';
+      sub.textContent = `Lokasi dikirim tiap ${INTERVAL_DETIK} detik. Jangan tutup halaman ini.`;
+      btn.className = 'btn-track btn-stop';
+      btn.innerHTML = '⏹️ Stop Tracking';
+    } else {
+      icon.textContent = '📍';
+      icon.classList.remove('tracking-pulse');
+      text.textContent = 'Tracking Berhenti';
+      sub.textContent = 'Klik tombol di bawah untuk mulai tracking kembali.';
+      btn.className = 'btn-track btn-start';
+      btn.innerHTML = '📡 Mulai Tracking';
+    }
+  }
+
+  function addLog(msg) {
+    const list = document.getElementById('log-list');
+    const time = new Date().toLocaleTimeString('id-ID');
+    const item = document.createElement('div');
+    item.className = 'log-item';
+    item.innerHTML = `<span class="log-time">${time}</span><span>${msg}</span>`;
+    list.prepend(item);
+    // Max 20 log
+    while (list.children.length > 20) list.removeChild(list.lastChild);
+  }
+
+  function showError() {
+    document.getElementById('error-card').classList.add('show');
+  }
+
+  init();
+</script>
+</body>
+</html>
