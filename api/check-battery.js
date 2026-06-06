@@ -18,11 +18,12 @@ export default async function handler(req, res) {
     const { device_id, battery, lat, lng } = req.body;
     if (!device_id || battery == null) return res.status(400).json({ error: 'Data tidak lengkap' });
 
-    // Ambil info device
+    // Validasi device aktif
     const { data: device } = await db
       .from('devices')
       .select('nama, model')
       .eq('id', device_id)
+      .eq('aktif', true)
       .single();
 
     if (!device) return res.status(404).json({ error: 'Device tidak ditemukan' });

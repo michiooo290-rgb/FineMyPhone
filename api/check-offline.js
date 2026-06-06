@@ -13,6 +13,8 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL;
 const OFFLINE_THRESHOLD_MENIT = 15;
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
   try {
     const now = new Date();
     const threshold = new Date(now.getTime() - OFFLINE_THRESHOLD_MENIT * 60 * 1000);

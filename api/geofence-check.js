@@ -30,12 +30,15 @@ export default async function handler(req, res) {
     const { device_id, lat, lng } = req.body;
     if (!device_id || lat == null || lng == null) return res.status(400).json({ error: 'Data tidak lengkap' });
 
-    // Ambil info device
+    // Ambil info device (hanya yang aktif)
     const { data: device } = await db
       .from('devices')
       .select('nama, model')
       .eq('id', device_id)
+      .eq('aktif', true)
       .single();
+
+    if (!device) return res.status(404).json({ error: 'Device tidak ditemukan' });
 
     // Ambil semua geofence aktif untuk device ini
     const { data: geofences } = await db

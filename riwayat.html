@@ -217,6 +217,30 @@
     .popup-row { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
     .popup-row span { color: var(--text); font-weight: 500; }
 
+    /* RESPONSIVE MOBILE */
+    @media (max-width: 640px) {
+      .main {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+      }
+
+      .timeline-sidebar {
+        order: 2;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        max-height: 35vh;
+      }
+
+      .map-wrap {
+        order: 1;
+      }
+
+      .filter-bar {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+      }
+    }
+
     /* Loading */
     .loading-overlay {
       position: fixed; inset: 0;
@@ -281,7 +305,7 @@
 
 <script>
   const SUPABASE_URL = 'https://slljvmlwdnyyaowcioso.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_qWGYZVKUlBesO5FubLMDow_pB_xJi1b'
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsbGp2bWx3ZG55eWFvd2Npb3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2NTE5NTQsImV4cCI6MjA5NjIyNzk1NH0.xMUpbkBZeVZWpMxBM1vifSzekScNJvmhaxAJrQEyG9k';
   const { createClient } = supabase;
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
