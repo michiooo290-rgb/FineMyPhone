@@ -1,63 +1,121 @@
 // sw-tracker.js — Service Worker untuk FindMyPhone Tracker
-// Menjaga tracking tetap jalan saat tab di-background
+// Letakkan di ROOT folder project (sejajar index.html)
 
-const SW_VERSION = '1.0.0';
+const SW_VERSION = '1.1.0';
+const CACHE_NAME = 'tracker-v1';
+const PENDING_CACHE = 'pending-locations';
+
 let trackerConfig = null;
+let isActive = false;
 
-// Install — langsung aktifkan
+// =====================
+// LIFECYCLE
+// =====================
 self.addEventListener('install', (event) => {
+  // Langsung aktifkan tanpa menunggu tab lama tutup
   self.skipWaiting();
 });
 
-// Activate — claim semua client
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      // Hapus cache lama
+      caches.keys().then(keys =>
+        Promise.all(
+          keys
+            .filter(k => k !== CACHE_NAME && k !== PENDING_CACHE)
+            .map(k => caches.delete(k))
+        )
+      )
+    ])
+  );
 });
 
-// Terima pesan dari tracker.html
+// =====================
+// PESAN DARI HALAMAN
+// =====================
 self.addEventListener('message', (event) => {
-  if (event.data.type === 'INIT_TRACKER') {
-    trackerConfig = event.data.config;
+  const { type, config, location } = event.data || {};
+
+  if (type === 'INIT_TRACKER') {
+    trackerConfig = config;
+    isActive = true;
+    console.log('[SW] Config diterima, device:', config?.deviceId);
   }
 
-  if (event.data.type === 'SEND_LOCATION') {
-    // Terima lokasi dari halaman dan kirim ke Supabase via SW
-    event.waitUntil(sendLocationFromSW(event.data.location));
+  if (type === 'SEND_LOCATION' && isActive) {
+    // Kirim lokasi dari SW sebagai backup
+    event.waitUntil(
+      sendLocationFromSW(location).then((ok) => {
+        if (ok) {
+          // Balas ke halaman bahwa lokasi terkirim via SW
+          event.source?.postMessage({ type: 'SW_LOCATION_SENT' });
+        }
+      })
+    );
+  }
+
+  if (type === 'STOP_TRACKER') {
+    isActive = false;
+    console.log('[SW] Tracker dihentikan');
   }
 });
 
-// Background sync — kirim lokasi yang pending saat online kembali
+// =====================
+// BACKGROUND SYNC
+// =====================
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-locations') {
     event.waitUntil(syncPendingLocations());
   }
 });
 
-// Periodic background sync (jika didukung browser)
+// Periodic Background Sync (Chrome Android, perlu izin)
 self.addEventListener('periodicsync', (event) => {
   if (event.tag === 'tracker-keepalive') {
     event.waitUntil(notifyClients());
   }
 });
 
-// Fetch event — cache strategy untuk asset tracker
+// =====================
+// FETCH (cache tracker assets)
+// =====================
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Hanya intercept request ke origin sendiri
+  // Skip: bukan origin sendiri atau cross-origin (Supabase, fonts, dll)
   if (url.origin !== self.location.origin) return;
 
-  // Jangan intercept API calls
+  // Skip: API calls — jangan di-cache
   if (url.pathname.startsWith('/api/')) return;
 
-  // Network-first untuk halaman tracker
-  if (url.pathname === '/tracker.html') {
+  // Cache-first untuk JS assets
+  if (url.pathname.startsWith('/js/') || url.pathname.endsWith('.js')) {
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        return fetch(event.request).then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // Network-first untuk halaman HTML (tracker.html, dll)
+  if (event.request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
-          // Cache halaman tracker untuk offline
-          const clone = response.clone();
-          caches.open('tracker-v1').then(cache => cache.put(event.request, clone));
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
           return response;
         })
         .catch(() => caches.match(event.request))
@@ -66,62 +124,26 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
-// Kirim lokasi dari Service Worker (fallback jika halaman di-throttle)
+// =====================
+// KIRIM LOKASI VIA SW
+// =====================
 async function sendLocationFromSW(location) {
-  if (!trackerConfig) return;
+  if (!trackerConfig || !location) return false;
+
+  const payload = {
+    device_id: trackerConfig.deviceId,
+    lat: location.lat,
+    lng: location.lng,
+    accuracy: location.accuracy || null,
+    speed: location.speed || null,
+    battery: location.battery || null,
+    timestamp: new Date().toISOString()
+  };
 
   try {
-    const response = await fetch(`${trackerConfig.supabaseUrl}/rest/v1/locations`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': trackerConfig.supabaseKey,
-        'Authorization': `Bearer ${trackerConfig.supabaseKey}`,
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify({
-        device_id: trackerConfig.deviceId,
-        lat: location.lat,
-        lng: location.lng,
-        accuracy: location.accuracy,
-        speed: location.speed,
-        battery: location.battery,
-        timestamp: new Date().toISOString()
-      })
-    });
-
-    if (!response.ok) {
-      // Simpan ke cache untuk sync nanti
-      await savePendingLocation(location);
-    }
-  } catch (e) {
-    await savePendingLocation(location);
-  }
-}
-
-// Simpan lokasi pending di IndexedDB-like cache
-async function savePendingLocation(location) {
-  const cache = await caches.open('pending-locations');
-  const key = `loc-${Date.now()}`;
-  await cache.put(
-    new Request(key),
-    new Response(JSON.stringify(location))
-  );
-}
-
-// Sync semua lokasi pending
-async function syncPendingLocations() {
-  if (!trackerConfig) return;
-
-  const cache = await caches.open('pending-locations');
-  const keys = await cache.keys();
-
-  for (const request of keys) {
-    try {
-      const response = await cache.match(request);
-      const location = await response.json();
-
-      const result = await fetch(`${trackerConfig.supabaseUrl}/rest/v1/locations`, {
+    const response = await fetch(
+      `${trackerConfig.supabaseUrl}/rest/v1/locations`,
+      {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,30 +151,90 @@ async function syncPendingLocations() {
           'Authorization': `Bearer ${trackerConfig.supabaseKey}`,
           'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({
-          device_id: trackerConfig.deviceId,
-          lat: location.lat,
-          lng: location.lng,
-          accuracy: location.accuracy,
-          speed: location.speed,
-          battery: location.battery,
-          timestamp: location.timestamp || new Date().toISOString()
-        })
-      });
+        body: JSON.stringify(payload)
+      }
+    );
+
+    if (!response.ok) {
+      await savePendingLocation(payload);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    // Offline — simpan ke pending cache
+    await savePendingLocation(payload);
+    return false;
+  }
+}
+
+// =====================
+// PENDING LOCATIONS (IndexedDB-like via Cache API)
+// =====================
+async function savePendingLocation(location) {
+  try {
+    const cache = await caches.open(PENDING_CACHE);
+    const key = `loc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await cache.put(
+      new Request(key),
+      new Response(JSON.stringify(location), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+  } catch (e) {
+    console.warn('[SW] Gagal simpan pending:', e);
+  }
+}
+
+async function syncPendingLocations() {
+  if (!trackerConfig) return;
+
+  let cache;
+  try {
+    cache = await caches.open(PENDING_CACHE);
+  } catch (e) { return; }
+
+  const keys = await cache.keys();
+  if (!keys.length) return;
+
+  console.log(`[SW] Sync ${keys.length} pending locations...`);
+
+  for (const request of keys) {
+    try {
+      const response = await cache.match(request);
+      const location = await response.json();
+
+      const result = await fetch(
+        `${trackerConfig.supabaseUrl}/rest/v1/locations`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': trackerConfig.supabaseKey,
+            'Authorization': `Bearer ${trackerConfig.supabaseKey}`,
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(location)
+        }
+      );
 
       if (result.ok) {
         await cache.delete(request);
       }
     } catch (e) {
-      // Tetap di cache, coba lagi nanti
+      // Tetap di cache, coba lagi nanti saat online
     }
   }
+
+  // Notify clients bahwa sync selesai
+  await notifyClients({ type: 'SYNC_COMPLETE' });
 }
 
-// Notify semua clients untuk tetap aktif
-async function notifyClients() {
-  const clients = await self.clients.matchAll();
+// =====================
+// NOTIFY CLIENTS
+// =====================
+async function notifyClients(message = { type: 'KEEPALIVE' }) {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true });
   for (const client of clients) {
-    client.postMessage({ type: 'KEEPALIVE' });
+    client.postMessage(message);
   }
 }
