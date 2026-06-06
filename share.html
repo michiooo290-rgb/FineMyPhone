@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FindMyPhone — Lihat Lokasi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #13161d;
+      --surface2: #1a1e28;
+      --border: #1e2330;
+      --accent: #3b82f6;
+      --text: #e8eaf0;
+      --muted: #6b7280;
+      --online: #22c55e;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* TOPBAR */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      height: 52px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      font-family: 'Space Mono', monospace;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .logo span { color: var(--accent); }
+
+    .share-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid rgba(59,130,246,0.2);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--accent);
+    }
+
+    /* MAP */
+    #map {
+      flex: 1;
+      width: 100%;
+    }
+
+    .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
+    .leaflet-popup-content-wrapper {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 12px !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+      color: var(--text) !important;
+    }
+    .leaflet-popup-tip { background: var(--surface) !important; }
+    .leaflet-popup-content { margin: 12px 16px !important; }
+
+    /* INFO PANEL */
+    .info-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 20px;
+      min-width: 280px;
+      max-width: 360px;
+      z-index: 1000;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    .info-name {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .info-row span:last-child { color: var(--text); font-weight: 500; }
+
+    .btn-gmaps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .btn-gmaps:hover { border-color: var(--accent); color: var(--accent); }
+
+    .expired-card {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      z-index: 9999;
+    }
+
+    .expired-inner {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      text-align: center;
+      max-width: 320px;
+    }
+
+    .expired-icon { font-size: 48px; margin-bottom: 16px; }
+    .expired-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .expired-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+    /* Custom marker */
+    .custom-marker {
+      width: 32px; height: 32px;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      border: 2px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .marker-offline { filter: grayscale(1) brightness(0.6); }
+
+    /* Popup */
+    .popup-name { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+    .popup-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .popup-row span:last-child { color: var(--text); font-weight: 500; }
+    .popup-link { display: block; margin-top: 10px; font-size: 12px; color: var(--accent); text-decoration: none; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .pulse { animation: pulse 1.5s infinite; }
+  </style>
+</head>
+<body>
+
+  <!-- Expired / Invalid -->
+  <div class="expired-card" id="expired-card" style="display:none">
+    <div class="expired-inner">
+      <div class="expired-icon">🔒</div>
+      <div class="expired-title">Link Tidak Aktif</div>
+      <div class="expired-sub">Link berbagi lokasi ini sudah kedaluwarsa atau tidak valid.<br><br>Minta link baru dari pemilik HP.</div>
+    </div>
+  </div>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="logo">Find<span>My</span>Phone</div>
+    <div class="share-badge">🔗 Lokasi dibagikan</div>
+  </div>
+
+  <!-- Map -->
+  <div style="flex:1; position:relative;">
+    <div id="map" style="width:100%;height:100%;"></div>
+
+    <!-- Info Panel -->
+    <div class="info-panel" id="info-panel" style="display:none">
+      <div class="info-name">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="info-name">—</span>
+      </div>
+      <div class="info-row"><span>Status</span><span id="info-status">—</span></div>
+      <div class="info-row"><span>Baterai</span><span id="info-battery">—</span></div>
+      <div class="info-row"><span>Akurasi</span><span id="info-accuracy">—</span></div>
+      <div class="info-row"><span>Update terakhir</span><span id="info-time">—</span></div>
+      <a class="btn-gmaps" id="btn-gmaps" href="#" target="_blank">🗺️ Buka di Google Maps</a>
+    </div>
+  </div>
+
+<script>
+  const SUPABASE_URL = 'GANTI_DENGAN_SUPABASE_URL_KAMU';
+  const SUPABASE_ANON_KEY = 'GANTI_DENGAN_SUPABASE_ANON_KEY_KAMU';
+  const { createClient } = supabase;
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let map, marker, deviceId, warna;
+
+  async function init() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    if (!token) { showExpired(); return; }
+
+    // Validasi token invite
+    const { data: link } = await db
+      .from('invite_links')
+      .select('*, devices(id, nama, model, warna_marker)')
+      .eq('token', token)
+      .eq('aktif', true)
+      .single();
+
+    if (!link) { showExpired(); return; }
+
+    // Cek expired
+    if (link.expired_at && new Date(link.expired_at) < new Date()) {
+      showExpired(); return;
+    }
+
+    deviceId = link.devices.id;
+    warna = link.devices.warna_marker || '#3b82f6';
+
+    // Set nama
+    document.getElementById('info-name').textContent = '📱 ' + link.devices.nama;
+    document.title = `FindMyPhone — ${link.devices.nama}`;
+    document.getElementById('info-panel').style.display = 'block';
+
+    // Init peta
+    map = L.map('map', { zoomControl: true })
+      .setView([0.5335, 101.45], 14);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© CartoDB © OpenStreetMap',
+      maxZoom: 19
+    }).addTo(map);
+
+    // Load lokasi terakhir
+    await loadLokasi();
+
+    // Subscribe realtime
+    db.channel('share-realtime')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'locations',
+        filter: `device_id=eq.${deviceId}`
+      }, (payload) => {
+        updateLokasi(payload.new);
+      })
+      .subscribe();
+  }
+
+  async function loadLokasi() {
+    const { data: locs } = await db
+      .from('locations')
+      .select('*')
+      .eq('device_id', deviceId)
+      .order('timestamp', { ascending: false })
+      .limit(1);
+
+    if (locs?.length) updateLokasi(locs[0]);
+  }
+
+  function updateLokasi(loc) {
+    const { lat, lng, battery, accuracy, timestamp } = loc;
+    const menit = Math.floor((Date.now() - new Date(timestamp)) / 60000);
+    const online = menit < 2;
+    const waktu = new Date(timestamp).toLocaleString('id-ID');
+    const gmaps = `https://maps.google.com/?q=${lat},${lng}`;
+
+    // Update marker
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="custom-marker ${online ? '' : 'marker-offline'}" style="background:${online ? warna : '#6b7280'}"></div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+      popupAnchor: [0, -36]
+    });
+
+    if (marker) {
+      marker.setLatLng([lat, lng]);
+      marker.setIcon(icon);
+    } else {
+      marker = L.marker([lat, lng], { icon }).addTo(map);
+      map.setView([lat, lng], 16);
+    }
+
+    // Update info panel
+    const dot = document.getElementById('status-dot');
+    dot.style.background = online ? '#22c55e' : '#6b7280';
+    if (online) dot.classList.add('pulse'); else dot.classList.remove('pulse');
+
+    document.getElementById('info-status').textContent = online ? '🟢 Online' : `⚫ Offline (${menit} menit lalu)`;
+    document.getElementById('info-battery').textContent = battery !== null ? `${battery}%` : '—';
+    document.getElementById('info-accuracy').textContent = accuracy ? `±${Math.round(accuracy)}m` : '—';
+    document.getElementById('info-time').textContent = waktu;
+    document.getElementById('btn-gmaps').href = gmaps;
+
+    // Fly ke lokasi baru jika sudah ada marker sebelumnya
+    if (online) map.panTo([lat, lng]);
+  }
+
+  function showExpired() {
+    document.getElementById('expired-card').style.display = 'flex';
+  }
+
+  init();
+</script>
+</body>
+</html>
